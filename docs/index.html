@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Last-mile route sequencing</title>
+<meta name="description" content="Learning the order in which experienced delivery drivers serve their stops, on the 2021 Amazon Last Mile Routing Research Challenge data.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/overview" aria-label="Last-mile sequencing, overview">
+    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+      <rect width="26" height="26" rx="7" fill="var(--accent)"/>
+      <path d="M6 18.5 L10.5 9 L15.5 15.5 L20 7.5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="6" cy="18.5" r="2" fill="#fff"/><circle cx="20" cy="7.5" r="2" fill="#fff"/>
+    </svg>
+    <span>Last-mile sequencing</span>
+  </a>
+  <nav aria-label="Sections">
+    <a href="#/overview" data-nav="overview">Overview</a>
+    <a href="#/explorer" data-nav="explorer">Route explorer</a>
+    <a href="#/method" data-nav="method">How it works</a>
+  </nav>
+  <div class="top-actions">
+    <button class="icon-btn" id="theme" type="button" aria-label="Switch between light and dark theme">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 12.5v-11a5.5 5.5 0 0 1 0 11Z"/></svg>
+    </button>
+    <a class="icon-btn" href="https://github.com/smAsifHossain/amazon-last-mile-routing" target="_blank" rel="noopener">Code</a>
+  </div>
+</header>
+
+<!-- ============================================================ overview -->
+<main class="view" id="view-overview">
+  <div class="page">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Amazon Last Mile Routing Research Challenge data</p>
+        <h1>Predicting the route a skilled driver would actually take</h1>
+        <p class="lede">The shortest route is not the one experienced drivers follow. This model learns from past routes in which order drivers work through their delivery zones, then sequences every stop to match.</p>
+        <a class="btn" href="#/explorer">Explore routes on the map
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7h8M7.5 3.5 11 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+      <div class="card hero-figure">
+        <div class="value" id="hero-value">–</div>
+        <div class="label">less deviation from the driver's sequence than the shortest route, on routes the model never saw</div>
+        <div class="hero-compare">
+          <div><b id="hero-learned">–</b>learned model</div>
+          <div><b id="hero-shortest">–</b>shortest route</div>
+          <div><b id="hero-routes">–</b>held-out routes</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tiles" id="tiles" aria-label="Key figures"></section>
+
+    <section class="charts">
+      <div class="card chart">
+        <h2>Deviation from the driver, by method</h2>
+        <p class="sub">Mean challenge score on held-out routes. Lower is better; 0 is the driver's own sequence.</p>
+        <div id="chart-methods"></div>
+        <details class="table"><summary>View as table</summary><div id="table-methods"></div></details>
+      </div>
+      <div class="card chart">
+        <h2>The gain holds in every city</h2>
+        <p class="sub">Mean score per metropolitan area.</p>
+        <div class="legend"><span class="key"><i class="swatch"></i>Shortest route</span><span class="key"><i class="swatch accent"></i>Learned model</span></div>
+        <div id="chart-cities"></div>
+        <details class="table"><summary>View as table</summary><div id="table-cities"></div></details>
+      </div>
+      <div class="card chart wide">
+        <h2 id="scatter-title">Route by route</h2>
+        <p class="sub">Each dot is one held-out route. Dots below the line are routes where the learned model is closer to the driver than the shortest route. Dots with a dark ring open in the explorer.</p>
+        <div class="legend"><span class="key"><i class="swatch accent" style="border-radius:50%"></i>One route</span><span class="key"><i class="swatch line"></i>Equal score</span></div>
+        <div id="chart-scatter"></div>
+      </div>
+    </section>
+    <p class="note" style="margin-top:16px">These figures are from training routes held out of fitting, not from the challenge's official evaluation set, so they are not leaderboard results.</p>
+  </div>
+</main>
+
+<!-- ============================================================ explorer -->
+<main class="view" id="view-explorer" hidden>
+  <div class="explorer">
+    <aside class="rail">
+      <div class="filters">
+        <div class="chips" id="city-chips" role="group" aria-label="City"></div>
+        <label class="field">Sort
+          <select id="sort">
+            <option value="gain">Largest improvement</option>
+            <option value="best">Closest to the driver</option>
+            <option value="worst">Furthest from the driver</option>
+            <option value="stops">Most stops</option>
+          </select>
+        </label>
+      </div>
+      <div class="list" id="list"></div>
+      <div class="count" id="count"></div>
+    </aside>
+    <section class="stage">
+      <div class="stage-head">
+        <h1 id="r-title">–</h1>
+        <span class="sub" id="r-sub"></span>
+      </div>
+      <div class="stats" id="r-stats"></div>
+
+      <div class="card player">
+        <button class="play" id="play" type="button" aria-label="Play route">
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path id="play-icon" fill="currentColor" d="M3 1.5v11l9-5.5z"/></svg>
+        </button>
+        <input type="range" id="scrub" min="0" max="1" step="0.01" value="1" aria-label="Position in the route">
+        <span class="readout" id="readout">–</span>
+        <span class="seg" id="speed" role="group" aria-label="Playback speed"><button data-speed="1" class="on">1×</button><button data-speed="3">3×</button><button data-speed="8">8×</button></span>
+      </div>
+
+      <div class="maps">
+        <div class="card pane">
+          <div class="pane-head"><strong>Driver's actual sequence</strong><span class="where" id="where-left"></span></div>
+          <div class="map" id="map-left"></div>
+        </div>
+        <div class="card pane">
+          <div class="pane-head">
+            <span class="seg" id="method" role="group" aria-label="Sequence to compare with the driver's"><button data-method="shortest">Shortest route</button><button data-method="learned" class="on">Learned model</button></span>
+            <span class="where" id="where-right"></span>
+          </div>
+          <div class="map" id="map-right"></div>
+        </div>
+      </div>
+
+      <div class="card zones">
+        <div class="zones-head">
+          <h2>Order of the delivery zones</h2>
+          <span class="sub">
+            <span>Colour = when the driver reached the zone: early<span class="ramp" id="ramp"></span>late</span>
+            &nbsp;·&nbsp;<span class="zkey"><i class="zbreak"></i>a move between zones the driver did not make</span>
+          </span>
+        </div>
+        <div class="zrow"><span class="who">Driver</span><div class="zchips" id="z-driver"></div></div>
+        <div class="zrow"><span class="who" id="z-who">Learned model</span><div class="zchips" id="z-method"></div></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ============================================================== method -->
+<main class="view" id="view-method" hidden>
+  <div class="page">
+    <p class="eyebrow">How it works</p>
+    <h1>Zone order first, stop order second</h1>
+    <p class="lede">Every drop-off belongs to a delivery zone such as <b>D-8.3E</b>, and drivers finish one zone before starting the next. The whole problem turns on predicting the order of those zones.</p>
+
+    <div class="steps">
+      <div class="card step"><span class="n">1</span><h2>Learn from past routes</h2><p>Three small choice models are fitted on historical routes: which zone a driver goes to next, which zone a route starts in, and which it ends in.</p></div>
+      <div class="card step"><span class="n">2</span><h2>Pick the most likely zone order</h2><p>For a new route, the zone order with the lowest total learned cost is found with a route solver over the zones.</p></div>
+      <div class="card step"><span class="n">3</span><h2>Sequence the stops</h2><p>The same solver builds the shortest stop sequence that serves the zones in that order.</p></div>
+    </div>
+
+    <div class="prose">
+      <h2>What the model looks at</h2>
+      <ul>
+        <li><b>History.</b> How often drivers from the same station went from one zone to the other before, and how often a zone was first or last.</li>
+        <li><b>Zone codes.</b> Whether two zones share a region, and whether only the sub-area number or only the block letter changes between them.</li>
+        <li><b>Distance.</b> Travel time between zones and which zone is nearest.</li>
+      </ul>
+      <h2>Why zone order is the lever</h2>
+      <p>If the driver's own zone order is given, even a simple stop order inside each zone scores <b id="m-known">–</b>. The learned model scores <b id="m-learned">–</b> and the shortest route <b id="m-shortest">–</b>. Almost all of the remaining gap is zone-order prediction: the model gets the first zone right on <b id="m-first">–</b> of routes and <b id="m-moves">–</b> of zone-to-zone moves.</p>
+      <h2>How it is tested</h2>
+      <p>One training route in five is held out by a hash of its id. The model is fitted on the other <b id="m-fit">–</b> routes and never sees the held-out ones, neither their sequences nor their zone history. Scores use the challenge's official metric, checked against the official scoring code.</p>
+      <h2>Limits</h2>
+      <ul>
+        <li>These are held-out training routes, not the challenge's 3,072 official evaluation routes.</li>
+        <li>Time windows and package sizes are not used yet.</li>
+        <li>Data: 2021 Amazon Last Mile Routing Research Challenge, CC BY-NC 4.0. This project is independent and not affiliated with Amazon.</li>
+      </ul>
+    </div>
+  </div>
+</main>
+
+<div class="tooltip" id="tooltip" hidden></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -48,6 +48,25 @@ Reproduce with `python scripts/validate.py` (about 8 minutes on 4 cores).
 These are not leaderboard numbers. The challenge leaderboard uses a separate set
 of 3,072 evaluation routes, which this project has not been scored on yet.
 
+## Demo
+
+`docs/` holds a static web app with three views:
+
+- **Overview**: results on all 1,186 held-out routes, by method, by city and
+  route by route.
+- **Route explorer**: 51 held-out routes on a map, with the driver's sequence
+  beside the shortest route or the model's route. Routes can be played back stop
+  by stop, and a strip shows where the predicted zone order departs from the
+  driver's.
+- **How it works**: the method and how it is tested.
+
+```bash
+python -m http.server 8765 --directory docs
+```
+
+Then open http://localhost:8765. The routes are precomputed by
+`python scripts/build_demo.py`.
+
 ## Status
 
 - [x] Scorer, verified against the official challenge scorer
@@ -56,7 +75,8 @@ of 3,072 evaluation routes, which this project has not been scored on yet.
 - [x] Learned zone-order model, validated on held-out training routes
 - [ ] Score on the 3,072 official evaluation routes
 - [ ] Better zone-order prediction (first zone is right about two times in three)
-- [ ] Interactive demo
+- [x] Interactive demo (local)
+- [ ] Demo hosted online
 
 ## Setup
 

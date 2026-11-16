@@ -1,5 +1,5 @@
 # Dataset (several GB; fetched with scripts/download_data.py)
-data/
+/data/
 
 # Python
 .venv/
@@ -15,3 +15,6 @@ dist/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Local tool settings
+.claude/
