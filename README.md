@@ -50,8 +50,15 @@ of 3,072 evaluation routes, which this project has not been scored on yet.
 
 ## Demo
 
-`docs/` holds a static page that shows, for 34 held-out routes, the driver's
-sequence next to the shortest route and the model's route on a map.
+`docs/` holds a static web app with three views:
+
+- **Overview**: results on all 1,186 held-out routes, by method, by city and
+  route by route.
+- **Route explorer**: 51 held-out routes on a map, with the driver's sequence
+  beside the shortest route or the model's route. Routes can be played back stop
+  by stop, and a strip shows where the predicted zone order departs from the
+  driver's.
+- **How it works**: the method and how it is tested.
 
 ```bash
 python -m http.server 8765 --directory docs
