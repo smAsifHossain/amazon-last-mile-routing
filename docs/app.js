@@ -61,7 +61,7 @@ const counter = new IntersectionObserver(entries => {
     const { value, format } = entry.target.countTo;
     const started = performance.now();
     const tick = now => {
-      const progress = Math.min((now - started) / 1300, 1);
+      const progress = Math.min(Math.max((now - started) / 1300, 0), 1);
       entry.target.textContent = format(value * (1 - Math.pow(1 - progress, 3)));
       if (progress < 1) requestAnimationFrame(tick);
     };
@@ -254,7 +254,7 @@ function renderOverview() {
   $("#f-train").textContent = fitted.toLocaleString();
   $("#r-kicker").textContent = `Results on ${s.count.toLocaleString()} ${what}`;
   $("#r-note").textContent = official
-    ? "Scored with the challenge's official metric on its official evaluation routes. The challenge closed in 2021, so this is a self-reported score, not a leaderboard entry."
+    ? "Scored with the challenge's official metric on its official evaluation routes. For reference, the winning entry of the 2021 challenge scored 0.0248 and the runner-up 0.0353. The challenge is closed, so this is a self-reported score and not a leaderboard entry: it was not run on the organisers' machines or under their time limits."
     : "These figures are from training routes held out of fitting, not from the challenge's official evaluation set.";
 
   const tiles = $("#tiles");

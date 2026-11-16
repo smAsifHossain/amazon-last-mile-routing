@@ -24,7 +24,7 @@ TRAIN_TRAVEL_TIMES = TRAIN_DIR / "model_build_inputs" / "travel_times.json"
 TRAIN_ACTUAL = TRAIN_DIR / "model_build_inputs" / "actual_sequences.json"
 TRAIN_INVALID_SCORES = TRAIN_DIR / "model_build_inputs" / "invalid_sequence_scores.json"
 
-# Evaluation set: 3,072 routes used for the challenge leaderboard.
+# Evaluation set: 3,052 routes used for the challenge leaderboard.
 EVAL_ROUTES = EVAL_DIR / "model_apply_inputs" / "eval_route_data.json"
 EVAL_PACKAGES = EVAL_DIR / "model_apply_inputs" / "eval_package_data.json"
 EVAL_TRAVEL_TIMES = EVAL_DIR / "model_apply_inputs" / "eval_travel_times.json"

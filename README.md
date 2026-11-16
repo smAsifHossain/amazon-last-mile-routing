@@ -33,39 +33,59 @@ The model therefore works in two stages:
 
 ## Results
 
-Mean score on 1,186 training routes that were held out: the model saw neither
-their sequences nor their zone history. Lower is better.
+### Official evaluation routes
 
-| Method | All routes | High-quality routes (526) |
-|---|---|---|
-| Shortest route | 0.0916 | 0.0863 |
-| Zone-aware, fixed penalties | 0.0550 | 0.0528 |
-| **Learned zone order** | **0.0256** | **0.0224** |
-| Driver's own zone order (limit of this approach) | 0.0073 | 0.0072 |
+The model was fitted on all 6,112 training routes and scored on the 3,052
+evaluation routes released with the challenge, using the challenge's metric.
+Lower is better.
 
-Reproduce with `python scripts/validate.py` (about 8 minutes on 4 cores).
+| Method | Mean score |
+|---|---|
+| Shortest route | 0.0882 |
+| Zone-aware, fixed penalties | 0.0514 |
+| **Learned zone order** | **0.0251** |
+| Driver's own zone order (limit of this approach) | 0.0074 |
 
-These are not leaderboard numbers. The challenge leaderboard uses a separate set
-of 3,072 evaluation routes, which this project has not been scored on yet.
+The learned model is closer to the driver than the shortest route on 97% of the
+routes. It starts in the driver's first zone on 61% of routes and reproduces 77%
+of the drivers' zone-to-zone moves.
+
+Reproduce with `python scripts/evaluate.py` (about 35 minutes on 4 cores).
+
+For reference, the 2021 challenge was won with a score of 0.0248, and the
+runner-up scored 0.0353. The comparison needs care:
+
+- The challenge is closed, so this score is self-reported. It was not run on the
+  organisers' machines or under their limits on training and routing time.
+- This project was built after the challenge, with the winning teams' published
+  insight that delivery zones drive driver behaviour.
+- Scoring uses this project's port of the official scorer, which is tested
+  against the official code.
+
+### Held-out training routes
+
+During development the model was validated on 1,186 training routes held out of
+fitting (`python scripts/validate.py`): 0.0256 for the learned model against
+0.0916 for the shortest route. The official result above agrees with it.
 
 ## Demo
 
 `docs/` holds a static web app with three views:
 
-- **Overview**: results on all 1,186 held-out routes, by method, by city and
-  route by route.
-- **Route explorer**: 51 held-out routes on a map, with the driver's sequence
+- **Home**: what the project is, what it does and how.
+- **Results**: scores on the 3,052 official evaluation routes, by method, by city
+  and route by route.
+- **Explore routes**: 60 evaluation routes on a map, with the driver's sequence
   beside the shortest route or the model's route. Routes can be played back stop
   by stop, and a strip shows where the predicted zone order departs from the
   driver's.
-- **How it works**: the method and how it is tested.
 
 ```bash
 python -m http.server 8765 --directory docs
 ```
 
-Then open http://localhost:8765. The routes are precomputed by
-`python scripts/build_demo.py`.
+Then open http://localhost:8765. Its data files are written by
+`python scripts/evaluate.py`.
 
 ## Status
 
@@ -73,8 +93,8 @@ Then open http://localhost:8765. The routes are precomputed by
 - [x] Data download and conversion that fits in little memory
 - [x] Baselines: random order, nearest neighbour, shortest route, fixed zone penalties
 - [x] Learned zone-order model, validated on held-out training routes
-- [ ] Score on the 3,072 official evaluation routes
-- [ ] Better zone-order prediction (first zone is right about two times in three)
+- [x] Score on the 3,052 official evaluation routes
+- [ ] Better zone-order prediction (the first zone is right on 61% of routes)
 - [x] Interactive demo (local)
 - [ ] Demo hosted online
 
@@ -104,9 +124,10 @@ at a time, so it runs on a machine with a few gigabytes of memory:
 
 ```bash
 python scripts/prepare_data.py train
+python scripts/prepare_data.py eval
 ```
 
-It contains 6,112 training routes and 3,072 evaluation routes from five US
+It contains 6,112 training routes and 3,052 evaluation routes from five US
 metropolitan areas, with stop locations, package details, travel times between
 stops and the sequence each driver followed.
 

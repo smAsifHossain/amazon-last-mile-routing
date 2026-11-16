@@ -1,6 +1,6 @@
 """Score the model on routes it has not seen and write the app's data files.
 
-    python scripts/evaluate.py                # the 3,072 official evaluation routes
+    python scripts/evaluate.py                # the 3,052 official evaluation routes
     python scripts/evaluate.py --split heldout  # one fifth of the training routes
 
 ``eval`` fits the model on all 6,112 training routes and scores the challenge's

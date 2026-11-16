@@ -8,7 +8,7 @@ Usage::
     python scripts/download_data.py --list            # show files and sizes
     python scripts/download_data.py --subset sample   # a handful of routes (~5 MB)
     python scripts/download_data.py --subset train    # 6,112 routes (~2.3 GB)
-    python scripts/download_data.py --subset eval     # 3,072 routes (~1.1 GB)
+    python scripts/download_data.py --subset eval     # 3,052 routes (~1.1 GB)
     python scripts/download_data.py                   # everything (~3.3 GB)
 
 Files land in ``data/raw/``. Files already present with the right size are skipped.
