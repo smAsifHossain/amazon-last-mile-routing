@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Last-mile route sequencing</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2330; --muted: #5d6878; --line: #dfe3ea;
+    --accent: #1f5fbf; --good: #1a7f4b; --bad: #b3401f; --chip: #eef1f6;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; }
+  header { padding: 14px 20px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  header p { margin: 0; color: var(--muted); max-width: 900px; }
+  .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 290px 1fr; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 16px 6px; }
+  .route { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; padding: 9px 16px; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+  .route:hover { background: var(--chip); }
+  .route.active { background: #e6eefb; box-shadow: inset 3px 0 0 var(--accent); }
+  .route .name { font-weight: 600; }
+  .route .meta { color: var(--muted); font-size: 12px; }
+  .route .score { font-variant-numeric: tabular-nums; font-size: 12px; text-align: right; }
+  .route .score b { color: var(--good); }
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 14px 16px 16px; gap: 12px; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+  .card .label { color: var(--muted); font-size: 12px; }
+  .card .value { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .card .sub { color: var(--muted); font-size: 12px; }
+  .card.learned .value { color: var(--good); }
+  .card.shortest .value { color: var(--bad); }
+  .maps { flex: 1; min-height: 320px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .pane { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; min-height: 0; }
+  .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); min-height: 44px; }
+  .pane-head strong { font-size: 14px; }
+  .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .tabs button { border: 0; background: var(--panel); padding: 5px 10px; font: inherit; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .tabs button.on { background: var(--accent); color: #fff; }
+  .map { flex: 1; min-height: 260px; }
+  .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; color: var(--muted); font-size: 12px; }
+  .ramp { display: inline-block; width: 140px; height: 10px; border-radius: 5px; vertical-align: middle; margin: 0 6px; }
+  .dot { display: inline-block; width: 10px; height: 10px; background: #111; vertical-align: middle; margin-right: 5px; }
+  .leaflet-tooltip { font: 12px system-ui, sans-serif; }
+  @media (max-width: 900px) {
+    body { height: auto; }
+    .layout { grid-template-columns: 1fr; }
+    aside { max-height: 220px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .maps { grid-template-columns: 1fr; }
+    .map { height: 340px; flex: none; }
+    .cards { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Last-mile route sequencing</h1>
+  <p>Predicting the order in which experienced drivers serve their stops. Each route below was held out: the model never saw it. Data: 2021 Amazon Last Mile Routing Research Challenge.</p>
+</header>
+<div class="layout">
+  <aside>
+    <h2>Held-out routes</h2>
+    <div id="routes"></div>
+  </aside>
+  <main>
+    <div class="cards">
+      <div class="card"><div class="label">Route</div><div class="value" id="c-route">–</div><div class="sub" id="c-route-sub"></div></div>
+      <div class="card shortest"><div class="label">Shortest route · deviation from driver</div><div class="value" id="c-shortest">–</div><div class="sub" id="c-shortest-sub"></div></div>
+      <div class="card learned"><div class="label">Learned model · deviation from driver</div><div class="value" id="c-learned">–</div><div class="sub" id="c-learned-sub"></div></div>
+    </div>
+    <div class="legend">
+      <span>Stop colour = when the <em>driver</em> served it: early <span class="ramp" id="ramp"></span> late</span>
+      <span><span class="dot"></span>Station (often off-map)</span>
+      <span>Line = the sequence shown in that panel. A good prediction keeps the colours in order along its line.</span>
+    </div>
+    <div class="maps">
+      <div class="pane">
+        <div class="pane-head"><strong>Driver's actual sequence</strong></div>
+        <div class="map" id="map-left"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-head">
+          <span class="tabs" role="group" aria-label="Sequence to compare with the driver's"><button id="tab-shortest">Shortest route</button><button id="tab-learned" class="on">Learned model</button></span>
+        </div>
+        <div class="map" id="map-right"></div>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const RAMP = ["#fde725", "#7ad151", "#22a884", "#2a788e", "#414487", "#440154"];
+let routes = [], current = 0, method = "learned", syncing = false;
+
+function rampColor(t) {
+  const x = Math.min(Math.max(t, 0), 1) * (RAMP.length - 1);
+  const i = Math.min(Math.floor(x), RAMP.length - 2), f = x - i;
+  const a = parseInt(RAMP[i].slice(1), 16), b = parseInt(RAMP[i + 1].slice(1), 16);
+  const mix = shift => Math.round(((a >> shift) & 255) * (1 - f) + ((b >> shift) & 255) * f);
+  return `rgb(${mix(16)},${mix(8)},${mix(0)})`;
+}
+
+function makeMap(id) {
+  const map = L.map(id, { zoomSnap: 0.25, attributionControl: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(map);
+  map.layer = L.layerGroup().addTo(map);
+  return map;
+}
+const left = makeMap("map-left"), right = makeMap("map-right");
+function link(a, b) {
+  a.on("move", () => {
+    if (syncing) return;
+    syncing = true;
+    b.setView(a.getCenter(), a.getZoom(), { animate: false });
+    syncing = false;
+  });
+}
+link(left, right); link(right, left);
+
+function draw(map, route, sequence) {
+  map.layer.clearLayers();
+  const stops = route.stops, n = sequence.length;
+  const driverPos = new Array(stops.length);
+  route.sequences.driver.forEach((stop, i) => { driverPos[stop] = i; });
+  const at = stop => [stops[stop][0], stops[stop][1]];
+  // Legs to and from the station are dashed: the station is usually far away.
+  const stationLeg = { color: "#8a93a3", weight: 1.5, dashArray: "4 6", interactive: false };
+  L.polyline([at(sequence[0]), at(sequence[1])], stationLeg).addTo(map.layer);
+  L.polyline([at(sequence[n - 1]), at(sequence[0])], stationLeg).addTo(map.layer);
+  L.polyline(sequence.slice(1).map(at), { color: "#1c2330", weight: 2, opacity: 0.75, interactive: false }).addTo(map.layer);
+  sequence.forEach((stop, i) => {
+    if (i === 0) {
+      L.marker(at(stop), { icon: L.divIcon({ className: "", html: '<div style="width:12px;height:12px;background:#111;border:2px solid #fff"></div>', iconSize: [12, 12] }) })
+        .bindTooltip(`Station ${route.station}`).addTo(map.layer);
+      return;
+    }
+    const edge = i === 1 || i === n - 1;
+    L.circleMarker(at(stop), {
+      radius: edge ? 8 : 5, color: edge ? "#111" : "#fff", weight: edge ? 2.5 : 1,
+      fillColor: rampColor((driverPos[stop] - 1) / Math.max(n - 2, 1)), fillOpacity: 1,
+    }).bindTooltip(
+      `Stop ${i} of ${n - 1} in this sequence${i === 1 ? " (first)" : i === n - 1 ? " (last)" : ""}<br>` +
+      `Driver served it as stop ${driverPos[stop]}<br>Zone ${route.zones[stops[stop][2]]}`
+    ).addTo(map.layer);
+  });
+}
+
+function show(index, refit) {
+  current = index;
+  const r = routes[index];
+  document.querySelectorAll(".route").forEach((el, i) => el.classList.toggle("active", i === index));
+  document.getElementById("c-route").textContent = `${r.city} · ${r.station}`;
+  document.getElementById("c-route-sub").textContent = `${r.stops.length - 1} stops in ${r.zones.length} zones · ${r.date} · driver drove ${r.minutes.driver} min`;
+  for (const name of ["shortest", "learned"]) {
+    document.getElementById(`c-${name}`).textContent = r.scores[name].toFixed(4);
+    const extra = r.minutes[name] - r.minutes.driver;
+    document.getElementById(`c-${name}-sub`).textContent =
+      `${r.minutes[name]} min driving (${extra >= 0 ? "+" : "−"}${Math.abs(extra)} vs driver) · 0 = identical to driver`;
+  }
+  document.getElementById("tab-shortest").classList.toggle("on", method === "shortest");
+  document.getElementById("tab-learned").classList.toggle("on", method === "learned");
+  draw(left, r, r.sequences.driver);
+  draw(right, r, r.sequences[method]);
+  if (refit) {
+    const dropoffs = r.stops.slice(1).map(s => [s[0], s[1]]);
+    left.invalidateSize(); right.invalidateSize();
+    left.fitBounds(dropoffs, { padding: [24, 24] });
+  }
+}
+
+function listRoutes() {
+  const box = document.getElementById("routes");
+  routes.forEach((r, i) => {
+    const el = document.createElement("button");
+    el.className = "route";
+    el.innerHTML =
+      `<span class="name">${r.city} · ${r.station}</span><span class="score">${r.scores.shortest.toFixed(3)} → <b>${r.scores.learned.toFixed(3)}</b></span>` +
+      `<span class="meta">${r.stops.length - 1} stops · ${r.zones.length} zones</span><span class="meta">shortest → learned</span>`;
+    el.onclick = () => show(i, true);
+    box.appendChild(el);
+  });
+}
+
+document.getElementById("ramp").style.background = `linear-gradient(90deg, ${RAMP.join(",")})`;
+document.getElementById("tab-shortest").onclick = () => { method = "shortest"; show(current, false); };
+document.getElementById("tab-learned").onclick = () => { method = "learned"; show(current, false); };
+
+fetch("data/routes.json").then(r => r.json()).then(data => {
+  routes = data;
+  listRoutes();
+  show(0, true);
+}).catch(err => {
+  document.getElementById("routes").textContent = "Could not load data/routes.json: " + err;
+});
+</script>
+</body>
+</html>
