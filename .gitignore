@@ -1,5 +1,5 @@
 # Dataset (several GB; fetched with scripts/download_data.py)
-data/
+/data/
 
 # Python
 .venv/
