@@ -10,9 +10,9 @@ Each is a conditional logit (a softmax over the candidate zones). The inputs
 describe a candidate zone: how often drivers from the same station made that
 move before, how the zone codes relate, and how far away the zone is.
 
-To sequence a new route, the learned preferences are turned into extra cost on
-the travel-time matrix (unlikely moves cost more) and the route solver finds the
-shortest route under those costs.
+To sequence a new route, the zone order with the lowest total learned cost is
+found first. The stops are then put in the shortest sequence that serves the
+zones in that order.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from .data import Route
 
 N_PAIR_FEATURES = 12
 N_END_FEATURES = 4
+OFF_ORDER = 1e5  # seconds; cost of a zone move that is not in the planned order
 
 
 # ------------------------------------------------------------------ zone view
@@ -216,17 +217,40 @@ def _log_softmax(utility: np.ndarray, axis: int = -1) -> np.ndarray:
     return shifted - np.log(np.exp(shifted).sum(axis=axis, keepdims=True))
 
 
+def sequence_by_zones(route: Route, view: ZoneView, order: list[int], rounds: int = 0, seed: int = 0) -> list[int]:
+    """Shortest stop sequence that serves the zones one after another in ``order``."""
+    k = len(view.zones)
+    # Start from a sequence that already follows the zone order: inside each
+    # zone, always drive to the closest stop not yet served.
+    sequence = [0]
+    for zone in order:
+        left = set(np.flatnonzero(view.stop_zone == zone).tolist())
+        while left:
+            row = route.times[sequence[-1]]
+            nearest = min(left, key=lambda stop: (row[stop], stop))
+            left.remove(nearest)
+            sequence.append(nearest)
+    # Then shorten it. Any move between zones other than the planned ones costs
+    # far more than a whole route, so improvements never break the zone order.
+    allowed = np.full((k + 1, k + 1), OFF_ORDER)  # last row/column: the station
+    np.fill_diagonal(allowed, 0.0)
+    allowed[order[:-1], order[1:]] = 0.0
+    allowed[k, order[0]] = 0.0
+    allowed[order[-1], k] = 0.0
+    codes = np.where(view.stop_zone < 0, k, view.stop_zone)
+    cost = route.times + allowed[codes[:, None], codes[None, :]]
+    return tsp.solve(cost, rounds=rounds, seed=seed, initial=np.array(sequence)).tolist()
+
+
 @dataclass
 class ZoneModel:
     history: History
     w_pair: np.ndarray
     w_start: np.ndarray
     w_end: np.ndarray
-    preference_weight: float = 300.0  # seconds per unit of learned cost
-    zone_change: float = 600.0  # seconds for leaving any zone
 
     @classmethod
-    def fit(cls, views: list[ZoneView], **settings) -> "ZoneModel":
+    def fit(cls, views: list[ZoneView]) -> "ZoneModel":
         history = History()
         for view in views:
             history.add(view)
@@ -255,11 +279,14 @@ class ZoneModel:
             w_pair=fit_choice(np.concatenate(pair_rows), np.array(pair_sizes)),
             w_start=fit_choice(np.concatenate(start_rows), np.array(start_sizes)),
             w_end=fit_choice(np.concatenate(end_rows), np.array(end_sizes)),
-            **settings,
         )
 
     def zone_costs(self, view: ZoneView, exclude_own: bool = False):
-        """Learned cost (negative log-probability) of each zone move, start and end."""
+        """Learned cost (negative log-probability) of each zone move, start and end.
+
+        Set ``exclude_own`` for a route the model was fitted on, so that its own
+        sequence is left out of the zone history.
+        """
         k = len(view.zones)
         pair, first, last = self.history.counts(view, exclude_own)
         utility = pair_features(view, pair) @ self.w_pair
@@ -270,18 +297,21 @@ class ZoneModel:
         end = -_log_softmax(end_features(view.to_station, last, first) @ self.w_end)
         return move, start, end
 
-    def cost_matrix(self, route: Route, view: ZoneView | None = None) -> np.ndarray:
-        """Travel times plus the learned cost of every zone move."""
-        view = view or zone_view(route)
+    def zone_order(self, view: ZoneView, exclude_own: bool = False, rounds: int = 50, seed: int = 0) -> list[int]:
+        """Most likely order of the zones: the one with the lowest total learned cost."""
         k = len(view.zones)
-        move, start, end = self.zone_costs(view)
-        between = np.zeros((k + 1, k + 1))  # last row/column stands for the station
-        between[:k, :k] = self.preference_weight * move + self.zone_change * (1 - np.eye(k))
-        between[k, :k] = self.preference_weight * start
-        between[:k, k] = self.preference_weight * end
-        codes = np.where(view.stop_zone < 0, k, view.stop_zone)
-        return route.times + between[codes[:, None], codes[None, :]]
+        if k == 1:
+            return [0]
+        move, start, end = self.zone_costs(view, exclude_own)
+        cost = np.zeros((k + 1, k + 1))  # node 0 is the station, node z + 1 is zone z
+        cost[1:, 1:] = move
+        cost[0, 1:] = start
+        cost[1:, 0] = end
+        tour = tsp.solve(cost, rounds=rounds, seed=seed)
+        return [int(node) - 1 for node in tour[1:]]
 
-    def predict(self, route: Route, rounds: int = 20, seed: int = 0) -> list[int]:
+    def predict(self, route: Route, seed: int = 0, exclude_own: bool = False) -> list[int]:
         """Proposed stop sequence for a route, starting at the station."""
-        return tsp.solve(self.cost_matrix(route), rounds=rounds, seed=seed).tolist()
+        view = zone_view(route)
+        order = self.zone_order(view, exclude_own, seed=seed)
+        return sequence_by_zones(route, view, order, seed=seed)

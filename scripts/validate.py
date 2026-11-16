@@ -62,10 +62,12 @@ def _init(fitted: model.ZoneModel) -> None:
 
 def score_route(path: Path) -> dict:
     route = load_route(path)
+    view = model.zone_view(route)
     sequences = {
         "shortest": baselines.shortest_route(route),
         "fixed": zones.zone_aware_route(route),
         "learned": _MODEL.predict(route),
+        "known": model.sequence_by_zones(route, view, view.order),
     }
     result = {name: scoring.score_sequence(route.actual, seq, route.times) for name, seq in sequences.items()}
     result["quality"] = route.quality
@@ -76,8 +78,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--limit", type=int, default=0, help="score only this many held-out routes")
     parser.add_argument("--workers", type=int, default=3)
-    parser.add_argument("--preference-weight", type=float, default=model.ZoneModel.preference_weight)
-    parser.add_argument("--zone-change", type=float, default=model.ZoneModel.zone_change)
     args = parser.parse_args()
 
     views = load_views(args.workers)
@@ -90,9 +90,7 @@ def main() -> int:
         held_out = held_out[: args.limit]
 
     started = time.time()
-    fitted = model.ZoneModel.fit(
-        fit_views, preference_weight=args.preference_weight, zone_change=args.zone_change
-    )
+    fitted = model.ZoneModel.fit(fit_views)
     print(f"Fitted on {len(fit_views)} routes in {time.time() - started:.0f}s")
     np.set_printoptions(precision=2, suppress=True)
     print("  next-zone weights ", fitted.w_pair)
@@ -108,14 +106,15 @@ def main() -> int:
             if len(results) % 200 == 0:
                 print(f"  {len(results)}  ({time.time() - started:.0f}s)", flush=True)
 
-    methods = ["shortest", "fixed", "learned"]
+    methods = ["shortest", "fixed", "learned", "known"]
     print(f"\n{'routes':<16}{'count':>6}" + "".join(f"{name:>10}" for name in methods))
     for label, keep in [("all", None), ("High", "High"), ("Medium", "Medium"), ("Low", "Low")]:
         rows = [r for r in results if keep is None or r["quality"] == keep]
         if rows:
             means = "".join(f"{np.mean([r[name] for r in rows]):>10.4f}" for name in methods)
             print(f"{label:<16}{len(rows):>6}{means}")
-    print(f"\npreference weight {args.preference_weight:g}, zone change {args.zone_change:g}, {time.time() - started:.0f}s")
+    print(f"\n{time.time() - started:.0f}s. 'known' uses the driver's own zone order and shows the")
+    print("best this approach could reach if the zone order were predicted perfectly.")
     return 0
 
 
