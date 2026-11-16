@@ -52,10 +52,33 @@ function showTip(event, html) {
 }
 const hideTip = () => { tip.hidden = true; };
 
+/* Numbers count up from zero the first time they scroll into view. */
+const counted = new WeakSet();
+const counter = new IntersectionObserver(entries => {
+  for (const entry of entries) {
+    if (!entry.isIntersecting) continue;
+    counter.unobserve(entry.target);
+    const { value, format } = entry.target.countTo;
+    const started = performance.now();
+    const tick = now => {
+      const progress = Math.min((now - started) / 1300, 1);
+      entry.target.textContent = format(value * (1 - Math.pow(1 - progress, 3)));
+      if (progress < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+}, { threshold: 0.4 });
+function countUp(node, value, format) {
+  node.textContent = format(value);
+  if (counted.has(node) || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  counted.add(node);
+  node.countTo = { value, format };
+  counter.observe(node);
+}
+
 /* -------------------------------------------------------------------- theme */
-function isDark() {
-  const stamped = document.documentElement.dataset.theme;
-  return stamped ? stamped === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+function isDark() {  // dark is the default look
+  return document.documentElement.dataset.theme !== "light";
 }
 try {
   const saved = localStorage.getItem("theme");
@@ -67,7 +90,6 @@ $("#theme").addEventListener("click", () => {
   try { localStorage.setItem("theme", next); } catch (error) { /* not remembered */ }
   onThemeChange();
 });
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => onThemeChange());
 
 /* Zone order is an ordinal scale: one hue, light to dark. Each theme uses the
    steps that stay visible on its own surface. */
@@ -109,10 +131,10 @@ function chartMethods(host, rows) {
     const y = i * rowH + (rowH - barH) / 2, w = Math.max(row.value * scale, 2);
     const label = svg("text", { x: 0, y: y + barH / 2 - 2, class: "t-label", "dominant-baseline": "middle" }, root, row.name);
     if (row.note) svg("tspan", { x: 0, dy: 14, class: "t-note" }, label, row.note);
-    svg("path", { d: barPath(labelW, y, w, barH), class: row.accent ? "m-accent" : "m-base" }, root);
+    svg("path", { d: barPath(labelW, y, w, barH), class: (row.accent ? "m-accent" : "m-base") + " m-bar" }, root);
     svg("text", { x: labelW + w + 8, y: y + barH / 2 + 1, class: "t-value", "dominant-baseline": "middle" }, root, score(row.value));
     const hit = svg("rect", { x: 0, y: i * rowH, width, height: rowH, class: "m-hit" }, root);
-    hit.addEventListener("mousemove", event => showTip(event, `<b>${row.name}</b>${tipRow("Mean score", score(row.value))}${tipRow("Routes", row.count.toLocaleString())}<div>${row.tip}</div>`));
+    hit.addEventListener("mousemove", event => showTip(event, `<b>${row.name}</b>${tipRow("Average score", score(row.value))}${tipRow("Routes", row.count.toLocaleString())}<div>${row.tip}</div>`));
     hit.addEventListener("mouseleave", hideTip);
   });
   svg("line", { x1: labelW, x2: labelW, y1: 2, y2: height - 2, class: "axis" }, root);
@@ -133,12 +155,12 @@ function chartCities(host, cities) {
   const band = plotW / cities.length, barW = Math.min(24, band * 0.26), gap = 2;
   cities.forEach((city, i) => {
     const centre = m.left + band * (i + 0.5);
-    svg("path", { d: columnPath(centre - barW - gap / 2, y(city.shortest), barW, y(0) - y(city.shortest)), class: "m-base" }, root);
-    svg("path", { d: columnPath(centre + gap / 2, y(city.learned), barW, y(0) - y(city.learned)), class: "m-accent" }, root);
+    svg("path", { d: columnPath(centre - barW - gap / 2, y(city.shortest), barW, y(0) - y(city.shortest)), class: "m-base m-col" }, root);
+    svg("path", { d: columnPath(centre + gap / 2, y(city.learned), barW, y(0) - y(city.learned)), class: "m-accent m-col" }, root);
     svg("text", { x: centre + gap / 2 + barW / 2, y: y(city.learned) - 5, class: "t-value", "text-anchor": "middle" }, root, city.learned.toFixed(3));
     svg("text", { x: centre, y: height - 8, class: "t-label", "text-anchor": "middle" }, root, band < 86 ? city.short : city.city);
     const hit = svg("rect", { x: m.left + band * i, y: m.top, width: band, height: plotH + m.bottom, class: "m-hit" }, root);
-    hit.addEventListener("mousemove", event => showTip(event, `<b>${city.city}</b>${tipRow("Shortest route", score(city.shortest))}${tipRow("Learned model", score(city.learned))}${tipRow("Held-out routes", city.count)}`));
+    hit.addEventListener("mousemove", event => showTip(event, `<b>${city.city}</b>${tipRow("Shortest route", score(city.shortest))}${tipRow("This model", score(city.learned))}${tipRow("Test routes", city.count)}`));
     hit.addEventListener("mouseleave", hideTip);
   });
 }
@@ -158,22 +180,22 @@ function chartScatter(host, routes, detailIds) {
     svg("text", { x: x(tick), y: m.top + plotH + 16, class: "t-tick", "text-anchor": "middle" }, root, tick.toFixed(digits));
   }
   svg("line", { x1: x(0), y1: y(0), x2: x(top), y2: y(top), class: "axis" }, root);
-  svg("text", { x: x(top) - 6, y: y(top) + 14, class: "t-note", "text-anchor": "end" }, root, "equal score");
-  svg("text", { x: m.left, y: 12, class: "t-label" }, root, "Learned model score");
-  svg("text", { x: width - m.right, y: height - 4, class: "t-label", "text-anchor": "end" }, root, "Shortest route score");
+  svg("text", { x: x(top) - 6, y: y(top) + 14, class: "t-note", "text-anchor": "end" }, root, "equally close");
+  svg("text", { x: m.left, y: 12, class: "t-label" }, root, "This model's score");
+  svg("text", { x: width - m.right, y: height - 4, class: "t-label", "text-anchor": "end" }, root, "Shortest route's score");
 
   const order = routes.map((_, i) => i).sort((a, b) => detailIds.has(routes[a].id) - detailIds.has(routes[b].id));
   for (const i of order) {
     const route = routes[i], hasDetail = detailIds.has(route.id);
     const dot = svg("circle", { cx: x(route.shortest), cy: y(route.learned), r: 4, class: "m-dot" + (hasDetail ? " has-detail" : ""), "data-i": i }, root);
-    if (hasDetail) { dot.style.stroke = "var(--ink)"; dot.style.fillOpacity = 0.9; }
+    dot.style.transitionDelay = (i % 40) * 15 + "ms";
   }
   root.addEventListener("mousemove", event => {
     const i = event.target.dataset && event.target.dataset.i;
     if (i === undefined) { hideTip(); return; }
     const route = routes[i];
-    showTip(event, `<b>${route.city} · ${route.station}</b>${tipRow("Shortest route", score(route.shortest))}${tipRow("Learned model", score(route.learned))}${tipRow("Stops / zones", route.stops + " / " + route.zones)}` +
-      (detailIds.has(route.id) ? "<div>Click to open in the explorer</div>" : ""));
+    showTip(event, `<b>${route.city} · ${route.station}</b>${tipRow("Shortest route", score(route.shortest))}${tipRow("This model", score(route.learned))}${tipRow("Stops / areas", route.stops + " / " + route.zones)}` +
+      (detailIds.has(route.id) ? "<div>Click to open on the map</div>" : ""));
   });
   root.addEventListener("mouseleave", hideTip);
   root.addEventListener("click", event => {
@@ -220,49 +242,55 @@ function computeStats() {
 }
 
 function renderOverview() {
-  const s = state.stats, fitted = state.summary.fitted_on;
-  $("#hero-value").textContent = percent(1 - s.learned / s.shortest);
-  $("#hero-learned").textContent = score(s.learned);
-  $("#hero-shortest").textContent = score(s.shortest);
-  $("#hero-routes").textContent = s.count.toLocaleString();
+  const s = state.stats, fitted = state.summary.fitted_on, official = state.summary.split === "eval";
+  const what = official ? "official evaluation routes" : "held-out training routes";
+  const gain = 1 - s.learned / s.shortest;
+  countUp($("#hero-value"), gain, percent);
+  countUp($("#p-gain"), gain, percent);
+  countUp($("#p-routes"), s.count, value => Math.round(value).toLocaleString());
+  $("#hero-compare").textContent = `Average score: this model ${score(s.learned)}, shortest route ${score(s.shortest)}.`;
+  $("#p-routes-label").textContent = official ? "official test routes it had never seen" : "unseen routes used for testing";
+  countUp($("#p-moves"), s.movesRight, percent);
+  $("#f-train").textContent = fitted.toLocaleString();
+  $("#r-kicker").textContent = `Results on ${s.count.toLocaleString()} ${what}`;
+  $("#r-note").textContent = official
+    ? "Scored with the challenge's official metric on its official evaluation routes. The challenge closed in 2021, so this is a self-reported score, not a leaderboard entry."
+    : "These figures are from training routes held out of fitting, not from the challenge's official evaluation set.";
 
   const tiles = $("#tiles");
   tiles.textContent = "";
   [
-    ["Held-out routes", s.count.toLocaleString(), `model fitted on ${fitted.toLocaleString()} others`],
+    ["Test routes", s.count.toLocaleString(), `the model learned from ${fitted.toLocaleString()} other routes`],
     ["Routes improved", percent(s.improved), "closer to the driver than the shortest route"],
-    ["First zone right", percent(s.firstRight), "routes where the model starts in the driver's first zone"],
-    ["Zone moves right", percent(s.movesRight), "of the driver's zone-to-zone moves reproduced"],
+    ["Starts in the right area", percent(s.firstRight), "routes where the model begins where the driver began"],
+    ["Moves between areas right", percent(s.movesRight), "of the drivers' moves from one area to the next"],
   ].forEach(([label, value, hint]) => {
     const tile = el("div", "card tile");
-    tile.append(el("div", "label", label), el("div", "value", value), el("div", "hint", hint));
+    tile.append(el("div", "name", label), el("div", "value", value), el("div", "hint", hint));
     tiles.appendChild(tile);
   });
 
   const methods = [
-    { name: "Shortest route", note: "travel time only", value: s.shortest, tip: "The route that minimises driving time, ignoring how drivers behave." },
-    { name: "Fixed zone penalties", note: "hand-set rules", value: s.fixed, tip: "Shortest route with fixed extra cost for leaving a zone, sub-area or region." },
-    { name: "Learned zone order", note: "this model", value: s.learned, accent: true, tip: "Zone order predicted from past routes, then the shortest stop sequence within it." },
-    { name: "Driver's zone order given", note: "limit of the approach", value: s.known, tip: "What the model would score if it predicted every zone order perfectly." },
+    { name: "Shortest route", note: "what a map app suggests", value: s.shortest, tip: "The route with the least driving, ignoring how drivers behave." },
+    { name: "Simple area rules", note: "hand-written, no learning", value: s.fixed, tip: "Shortest route with a fixed rule: finish one area before starting the next." },
+    { name: "This model", note: "learned from drivers", value: s.learned, accent: true, tip: "The order of areas is predicted from past routes, then every stop is ordered inside it." },
+    { name: "Perfect area order", note: "best this approach could do", value: s.known, tip: "What the model would score if it always guessed the order of areas correctly." },
   ].map(row => ({ ...row, count: s.count }));
   chartMethods($("#chart-methods"), methods);
-  table($("#table-methods"), ["Method", "Mean score"], methods.map(row => [row.name, score(row.value)]));
+  table($("#table-methods"), ["Method", "Average score"], methods.map(row => [row.name, score(row.value)]));
   chartCities($("#chart-cities"), s.cities);
-  table($("#table-cities"), ["City", "Routes", "Shortest", "Learned"], s.cities.map(c => [c.city, c.count, score(c.shortest), score(c.learned)]));
-  $("#scatter-title").textContent = `${percent(s.improved)} of routes are closer to the driver with the learned model`;
+  table($("#table-cities"), ["City", "Routes", "Shortest route", "This model"], s.cities.map(c => [c.city, c.count, score(c.shortest), score(c.learned)]));
+  $("#scatter-title").textContent = `On ${percent(s.improved)} of routes, this model is closer to the driver`;
   chartScatter($("#chart-scatter"), state.summary.routes, state.detailIds);
 
-  $("#m-known").textContent = score(s.known);
-  $("#m-learned").textContent = score(s.learned);
-  $("#m-shortest").textContent = score(s.shortest);
-  $("#m-first").textContent = percent(s.firstRight);
-  $("#m-moves").textContent = percent(s.movesRight);
-  $("#m-fit").textContent = fitted.toLocaleString();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    for (const chart of document.querySelectorAll(".chart")) chart.classList.add("in");
+  }));
 }
 
 /* ----------------------------------------------------------------- explorer */
 const ex = {
-  city: "All", sort: "gain", route: null, method: "learned", t: 0, playing: false, speed: 1,
+  city: "All", sort: "gain", route: null, method: "learned", t: 0, playing: false, speed: 3, autoPlayed: false,
   left: null, right: null, hoverZone: null, zoneColor: [], lastFrame: 0, syncing: false,
 };
 const STOPS_PER_SECOND = 4;
@@ -312,16 +340,16 @@ function drawPanel(panel, route, name) {
     const stop = sequence[i], zone = route.stop_zone[stop];
     const marker = L.circleMarker(at(stop), { radius: 5, color: surface, weight: 1.5, fillColor: ex.zoneColor[zone], fillOpacity: 1 });
     marker.on("mouseover", event => showTip(event.originalEvent,
-      `<b>Zone ${route.zone_names[zone]}</b>` +
-      tipRow("In this sequence", `stop ${i} of ${n - 1}`) +
-      tipRow("In the driver's", `stop ${ex.left.pos[stop]}`) +
+      `<b>Area ${route.zone_names[zone]}</b>` +
+      tipRow("On this map", `stop ${i} of ${n - 1}`) +
+      tipRow("For the driver", `stop ${ex.left.pos[stop]}`) +
       tipRow("Packages", route.packages[stop])));
     marker.on("mouseout", hideTip);
     marker.addTo(panel.layer);
     panel.markers[stop] = marker;
   }
   L.circleMarker(at(sequence[0]), { radius: 6, color: surface, weight: 2, fillColor: ink, fillOpacity: 1 })
-    .on("mouseover", event => showTip(event.originalEvent, `<b>Station ${route.station}</b><div>Every route starts and ends here.</div>`))
+    .on("mouseover", event => showTip(event.originalEvent, `<b>Depot ${route.station}</b><div>Every route starts and ends here.</div>`))
     .on("mouseout", hideTip).addTo(panel.layer);
   panel.vehicle = L.circleMarker(at(sequence[0]), { radius: 8, color: surface, weight: 3, fillColor: VEHICLE, fillOpacity: 1, interactive: false }).addTo(panel.layer);
   panel.lastI = -1;
@@ -354,8 +382,8 @@ function updatePanel(panel, route, t, force) {
     restyle(panel, route, i);
     panel.lastI = i;
     panel.where.textContent = i === 0
-      ? "At the station"
-      : `Zone ${shortZone(route.zone_names[route.stop_zone[sequence[i]]])} · ${Math.round(panel.minutes[i])} min driving`;
+      ? "At the depot"
+      : `Area ${shortZone(route.zone_names[route.stop_zone[sequence[i]]])} · ${Math.round(panel.minutes[i])} min driving`;
   }
   return i === 0 ? null : route.stop_zone[sequence[i]];
 }
@@ -381,6 +409,7 @@ function setPlaying(playing) {
   ex.playing = playing;
   $("#play-icon").setAttribute("d", playing ? "M3 1.5h3v11H3zM8 1.5h3v11H8z" : "M3 1.5v11l9-5.5z");
   $("#play").setAttribute("aria-label", playing ? "Pause" : "Play route");
+  $("#play").classList.toggle("idle", !playing);
   if (playing) {
     const last = ex.route.sequences.driver.length - 1;
     if (ex.t >= last - 1e-6) setTime(0, true);
@@ -411,7 +440,7 @@ function renderZones(route) {
     order.forEach((zone, i) => {
       if (markBreaks && i > 0 && !driverMoves.has(order[i - 1] + ">" + zone)) {
         const mark = el("i", "zbreak");
-        mark.title = "The driver did not go from the previous zone to this one";
+        mark.title = "The driver did not go from the previous area to this one";
         host.appendChild(mark);
       }
       const chip = el("span", "zchip", shortZone(route.zone_names[zone]));
@@ -423,7 +452,7 @@ function renderZones(route) {
         for (const other of document.querySelectorAll(".zchip")) other.classList.toggle("dim", +other.dataset.zone !== zone);
         restyle(ex.left, route, ex.left.lastI);
         restyle(ex.right, route, ex.right.lastI);
-        showTip(event, `<b>Zone ${route.zone_names[zone]}</b>${tipRow("Stops", sizes[zone])}${tipRow("Driver's order", `${driverRank[zone] + 1} of ${driverOrder.length}`)}${tipRow("This sequence", `${order.indexOf(zone) + 1} of ${order.length}`)}`);
+        showTip(event, `<b>Area ${route.zone_names[zone]}</b>${tipRow("Stops", sizes[zone])}${tipRow("Driver reached it", `${driverRank[zone] + 1} of ${driverOrder.length}`)}${tipRow("In this row", `${order.indexOf(zone) + 1} of ${order.length}`)}`);
       });
       chip.addEventListener("mouseleave", () => {
         ex.hoverZone = null;
@@ -437,7 +466,7 @@ function renderZones(route) {
   };
   fill($("#z-driver"), driverOrder, false);
   fill($("#z-method"), methodOrder, true);
-  $("#z-who").textContent = ex.method === "learned" ? "Learned model" : "Shortest route";
+  $("#z-who").textContent = ex.method === "learned" ? "This model" : "Shortest route";
 }
 
 const ICON_RIGHT = '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="9" fill="currentColor"/><path d="M5 9.4 7.8 12 13 6.5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -448,18 +477,18 @@ function renderStats(route) {
   const host = $("#r-stats");
   host.textContent = "";
   const add = (label, valueNode, hint) => {
-    const card = el("div", "card stat");
+    const card = el("div", "card stat" + (host.children.length === 0 ? " lead" : ""));
     const value = el("div", "value");
     if (typeof valueNode === "string") value.textContent = valueNode; else value.appendChild(valueNode);
-    card.append(el("div", "label", label), value, el("div", "hint", hint));
+    card.append(el("div", "name", label), value, el("div", "hint", hint));
     host.appendChild(card);
   };
-  add("Learned model", score(route.learned), "deviation from driver; 0 is identical");
-  add("Shortest route", score(route.shortest), `${(route.shortest / Math.max(route.learned, 1e-4)).toFixed(1)}× the learned model's`);
-  add("Zone moves matched", percent(route.moves_right), "of the driver's zone-to-zone moves");
+  add("This model's score", score(route.learned), "difference from the driver; 0 = identical");
+  add("Shortest route's score", score(route.shortest), `${(route.shortest / Math.max(route.learned, 1e-4)).toFixed(1)}× further from the driver`);
+  add("Area moves matched", percent(route.moves_right), "of the driver's moves between areas");
   const verdict = el("span", "verdict " + (route.first_zone_right ? "good" : "bad"));
   verdict.innerHTML = (route.first_zone_right ? ICON_RIGHT : ICON_WRONG) + `<span>${route.first_zone_right ? "Right" : "Wrong"}</span>`;
-  add("First zone", verdict, "does the model start where the driver did");
+  add("Starting area", verdict, "does the model start where the driver did");
   add("Driving time", `${minutes("learned")} min`, `driver ${minutes("driver")} · shortest ${minutes("shortest")} min`);
 }
 
@@ -476,8 +505,8 @@ function selectRoute(id, fit = true) {
   ex.zoneColor = new Array(route.zone_names.length).fill("#898781");
   order.forEach((zone, i) => { ex.zoneColor[zone] = rampColor(order.length > 1 ? i / (order.length - 1) : 0); });
 
-  $("#r-title").textContent = `${route.city} · station ${route.station}`;
-  $("#r-sub").textContent = `${route.stops} stops in ${route.zones} zones · ${route.date} · ${route.quality.toLowerCase()}-quality driver sequence`;
+  $("#r-title").textContent = `${route.city} · depot ${route.station}`;
+  $("#r-sub").textContent = `${route.stops} stops in ${route.zones} areas · ${route.date}${route.quality ? " · " + route.quality.toLowerCase() + "-quality driver sequence" : ""}`;
   renderStats(route);
   for (const item of document.querySelectorAll(".item")) item.classList.toggle("on", item.dataset.id === route.id);
   const active = $(".item.on");
@@ -495,6 +524,10 @@ function selectRoute(id, fit = true) {
     ex.left.map.fitBounds(route.coords.slice(1), { padding: [28, 28], animate: false });
   }
   setTime(last, true);
+  if (!ex.autoPlayed && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    ex.autoPlayed = true;
+    setTimeout(() => { if (ex.route === route && !$("#view-explorer").hidden) setPlaying(true); }, 700);
+  }
   if (location.hash !== "#/explorer/" + route.id) history.replaceState(null, "", "#/explorer/" + route.id);
 }
 
@@ -521,11 +554,11 @@ function renderList() {
     accent.style.width = (route.learned / widest) * 100 + "%";
     mini.append(base, accent);
     item.append(el("span", "name", `${route.city} · ${route.station}`), num,
-      el("span", "meta", `${shortDate(route.date)} · ${route.stops} stops · ${route.zones} zones`), el("span", "meta", "shortest → learned"), mini);
+      el("span", "meta", `${shortDate(route.date)} · ${route.stops} stops · ${route.zones} areas`), el("span", "meta", "shortest → this model"), mini);
     item.addEventListener("click", () => selectRoute(route.id));
     host.appendChild(item);
   });
-  $("#count").textContent = `${shown.length} of ${state.details.length} routes with full detail`;
+  $("#count").textContent = `${shown.length} of ${state.details.length} routes shown`;
 }
 
 function setupExplorer() {
@@ -570,8 +603,8 @@ function setupExplorer() {
 
 /* ------------------------------------------------------------------ routing */
 function showView() {
-  const [, name = "overview", arg] = location.hash.split("/");
-  const view = ["overview", "explorer", "method"].includes(name) ? name : "overview";
+  const [, name = "home", arg] = location.hash.split("/");
+  const view = ["home", "results", "explorer"].includes(name) ? name : "home";
   for (const section of document.querySelectorAll(".view")) section.hidden = section.id !== "view-" + view;
   for (const link of document.querySelectorAll("[data-nav]")) link.classList.toggle("on", link.dataset.nav === view);
   hideTip();
@@ -581,7 +614,7 @@ function showView() {
     const wanted = arg || (ex.route && ex.route.id);
     if (!ex.route || (arg && arg !== ex.route.id) || !ex.left) selectRoute(wanted);
     else { ex.left.map.invalidateSize(); ex.right.map.invalidateSize(); }
-  } else if (view === "overview") {
+  } else {
     renderOverview();
   }
 }
@@ -601,7 +634,7 @@ function onThemeChange() {
 let resizeTimer = 0;
 addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if (state.summary && !$("#view-overview").hidden) renderOverview(); }, 150);
+  resizeTimer = setTimeout(() => { if (state.summary && !$("#view-results").hidden) renderOverview(); }, 150);
 });
 addEventListener("hashchange", showView);
 
@@ -616,6 +649,52 @@ Promise.all([
   setupExplorer();
   showView();
 }).catch(error => {
-  $("#view-overview .page").prepend(el("p", "loading", "Could not load the data files: " + error));
+  $("#view-home .page").prepend(el("p", "loading", "Could not load the data files: " + error));
 });
+
+/* Hero animation: a route drawn area by area, looping. */
+function heroVisual() {
+  const host = $("#hero-visual");
+  let seed = 7;
+  const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const centres = [[120, 290], [150, 130], [290, 80], [410, 170], [350, 310]];
+  const root = svg("svg", { viewBox: "0 0 520 390", role: "img", "aria-label": "Animated delivery route visiting five areas in turn" }, host);
+  const gradient = svg("linearGradient", { id: "hv-grad", x1: 0, y1: 1, x2: 1, y2: 0 }, svg("defs", {}, root));
+  svg("stop", { offset: 0, "stop-color": "#3987e5" }, gradient);
+  svg("stop", { offset: 1, "stop-color": "#22d3ee" }, gradient);
+  let d = "M40,360";
+  for (const [cx, cy] of centres) {
+    svg("circle", { cx, cy, r: 56, class: "hv-zone" }, root);
+    const stops = Array.from({ length: 7 }, () => [cx + (random() - 0.5) * 80, cy + (random() - 0.5) * 80])
+      .sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+    for (const [x, y] of stops) {
+      svg("circle", { cx: x, cy: y, r: 3.5, class: "hv-stop" }, root);
+      d += ` L${x.toFixed(1)},${y.toFixed(1)}`;
+    }
+  }
+  d += " L40,360";
+  svg("path", { d, class: "hv-ghost" }, root);
+  const path = svg("path", { d, id: "hv-route", class: "hv-path", pathLength: 1, "stroke-dasharray": 1, "stroke-dashoffset": 1 }, root);
+  svg("animate", { attributeName: "stroke-dashoffset", values: "1;0;0", keyTimes: "0;0.88;1", dur: "10s", repeatCount: "indefinite" }, path);
+  svg("rect", { x: 33, y: 353, width: 14, height: 14, rx: 3, class: "hv-station" }, root);
+  svg("text", { x: 54, y: 376, class: "hv-label" }, root, "Depot");
+  centres.forEach(([cx, cy], i) => {
+    const badge = svg("g", { class: "hv-badge" }, root);
+    svg("circle", { cx, cy: cy - 62, r: 11 }, badge);
+    svg("text", { x: cx, y: cy - 62 }, badge, String(i + 1));
+  });
+  const van = svg("circle", { r: 6, class: "hv-van" }, root);
+  const motion = svg("animateMotion", { dur: "10s", repeatCount: "indefinite", keyPoints: "0;1;1", keyTimes: "0;0.88;1", calcMode: "linear" }, van);
+  svg("mpath", { href: "#hv-route" }, motion);
+}
+heroVisual();
+
+/* Sections fade up as they scroll into view. */
+const revealer = new IntersectionObserver(entries => {
+  for (const entry of entries) {
+    if (entry.isIntersecting) { entry.target.classList.add("in"); revealer.unobserve(entry.target); }
+  }
+}, { threshold: 0.12 });
+document.querySelectorAll(".reveal").forEach(node => revealer.observe(node));
+$("#guide-close").addEventListener("click", () => { $("#guide").hidden = true; });
 showView();
