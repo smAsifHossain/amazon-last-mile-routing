@@ -1,38 +1,34 @@
 """Simple sequencing methods that use travel times only.
 
 They ignore how drivers behave, so they mark the level a learned model has to beat.
+Every method returns stop numbers starting with 0, the station.
 """
 
 from __future__ import annotations
 
 import random
 
+from . import tsp
 from .data import Route
 
 
-def random_order(route: Route, seed: int = 0) -> list[str]:
+def random_order(route: Route, seed: int = 0) -> list[int]:
     """Stops in random order: the floor any method should clear."""
-    stops = route.dropoffs
+    stops = list(range(1, route.n_stops))
     random.Random(seed).shuffle(stops)
-    return [route.station] + stops
+    return [0] + stops
 
 
-def nearest_neighbour(route: Route) -> list[str]:
+def nearest_neighbour(route: Route) -> list[int]:
     """From the station, always drive to the closest unvisited stop."""
-    times = route.travel_times
-    current = route.station
-    remaining = set(route.dropoffs)
-    sequence = [current]
-    while remaining:
-        row = times[current]
-        current = min(remaining, key=lambda stop: (row[stop], stop))
-        remaining.remove(current)
-        sequence.append(current)
-    return sequence
+    return tsp.nearest_neighbour_tour(route.times).tolist()
 
 
-def tour_time(route: Route, sequence: list[str]) -> float:
+def shortest_route(route: Route, rounds: int = 20, seed: int = 0) -> list[int]:
+    """Shortest closed route on travel time alone."""
+    return tsp.solve(route.times, rounds=rounds, seed=seed).tolist()
+
+
+def tour_time(route: Route, sequence: list[int]) -> float:
     """Total driving time in seconds, including the return to the station."""
-    times = route.travel_times
-    closed = sequence + [sequence[0]]
-    return sum(times[a][b] for a, b in zip(closed, closed[1:]))
+    return tsp.tour_cost(route.times, sequence)

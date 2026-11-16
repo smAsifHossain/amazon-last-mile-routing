@@ -39,22 +39,16 @@ def parse_zone(zone_id: str) -> tuple[str, str, str] | None:
     return f"{letter}-{number}", sub_area, block
 
 
-def stop_zones(route: Route, stop_ids: list[str]) -> list[str | None]:
+def stop_zones(route: Route) -> list[str | None]:
     """Zone of each stop; stops without one take the zone of the nearest stop that has one."""
-    zoned = [stop for stop in route.dropoffs if route.stops[stop].zone_id]
-    zones: list[str | None] = []
-    for stop in stop_ids:
-        info = route.stops[stop]
-        if info.is_station:
-            zones.append(None)
-        elif info.zone_id:
-            zones.append(info.zone_id)
-        elif zoned:
-            row = route.travel_times[stop]
-            nearest = min(zoned, key=lambda other: (row[other], other))
-            zones.append(route.stops[nearest].zone_id)
+    zoned = [i for i in range(1, route.n_stops) if route.zone_ids[i]]
+    zones: list[str | None] = [None]  # the station
+    for i in range(1, route.n_stops):
+        if route.zone_ids[i] or not zoned:
+            zones.append(route.zone_ids[i])
         else:
-            zones.append(None)
+            nearest = min(zoned, key=lambda other: (route.times[i, other], other))
+            zones.append(route.zone_ids[nearest])
     return zones
 
 
@@ -80,27 +74,12 @@ def penalty_matrix(zones: list[str | None], penalties: ZonePenalties) -> np.ndar
     return between[codes[:, None], codes[None, :]]
 
 
-def cost_matrix(route: Route, stop_ids: list[str]) -> np.ndarray:
-    times = route.travel_times
-    return np.array([[times[a][b] for b in stop_ids] for a in stop_ids])
-
-
-def shortest_route(route: Route, time_limit: float = 2.0, seed: int = 0) -> list[str]:
-    """Shortest closed route on travel time alone."""
-    stop_ids = [route.station] + route.dropoffs
-    tour = tsp.solve(cost_matrix(route, stop_ids), time_limit=time_limit, seed=seed)
-    return [stop_ids[i] for i in tour]
-
-
 def zone_aware_route(
     route: Route,
     penalties: ZonePenalties = ZonePenalties(),
-    time_limit: float = 2.0,
+    rounds: int = 20,
     seed: int = 0,
-) -> list[str]:
+) -> list[int]:
     """Shortest route when leaving a zone, sub-area or region costs extra."""
-    stop_ids = [route.station] + route.dropoffs
-    cost = cost_matrix(route, stop_ids)
-    cost = cost + penalty_matrix(stop_zones(route, stop_ids), penalties)
-    tour = tsp.solve(cost, time_limit=time_limit, seed=seed)
-    return [stop_ids[i] for i in tour]
+    cost = route.times + penalty_matrix(stop_zones(route), penalties)
+    return tsp.solve(cost, rounds=rounds, seed=seed).tolist()

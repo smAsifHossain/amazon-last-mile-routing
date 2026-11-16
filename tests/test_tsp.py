@@ -27,7 +27,7 @@ def brute_force(cost: np.ndarray) -> float:
 @pytest.mark.parametrize("seed", range(8))
 def test_finds_optimal_tour_on_small_instances(seed):
     cost = random_costs(8, seed)
-    tour = tsp.solve(cost, time_limit=0.2, seed=seed)
+    tour = tsp.solve(cost, rounds=20, seed=seed)
     assert tour[0] == 0
     assert sorted(tour.tolist()) == list(range(8))
     assert tsp.tour_cost(cost, tour) == pytest.approx(brute_force(cost))

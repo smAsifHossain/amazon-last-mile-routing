@@ -19,7 +19,7 @@ from lastmile.data import load_sample  # noqa: E402
 METHODS = {
     "random": baselines.random_order,
     "nearest": baselines.nearest_neighbour,
-    "shortest": zones.shortest_route,
+    "shortest": baselines.shortest_route,
     "zone-aware": zones.zone_aware_route,
 }
 
@@ -29,12 +29,10 @@ def main() -> None:
     print(f"{len(routes)} sample routes\n")
     print(f"{'route':<14}{'station':<9}{'stops':>6}" + "".join(f"{name:>12}" for name in METHODS))
     totals = {name: 0.0 for name in METHODS}
-    for route in routes.values():
-        actual = route.actual + [route.actual[0]]
-        line = f"{route.id[8:20]:<14}{route.station_code:<9}{len(route.dropoffs):>6}"
+    for route in routes:
+        line = f"{route.id[8:20]:<14}{route.station_code:<9}{route.n_stops - 1:>6}"
         for name, method in METHODS.items():
-            sequence = method(route)
-            score = scoring.score_route(actual, sequence + [sequence[0]], route.travel_times)
+            score = scoring.score_sequence(route.actual, method(route), route.times)
             totals[name] += score
             line += f"{score:>12.4f}"
         print(line, flush=True)

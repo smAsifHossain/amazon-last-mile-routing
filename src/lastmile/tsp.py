@@ -7,15 +7,18 @@ are typically within a few percent of optimal for routes of 100-200 stops.
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
 
-EPS = 1e-9
+# A move must gain at least this much to count as an improvement. Gains are
+# differences of running sums, so with large costs in the matrix they carry
+# rounding error; a threshold near zero would accept that noise as progress and
+# never stop.
+EPS = 1e-6
 
 
 def tour_cost(cost: np.ndarray, tour: np.ndarray) -> float:
     """Cost of the closed tour ``tour[0] -> ... -> tour[-1] -> tour[0]``."""
+    tour = np.asarray(tour)
     return float(cost[tour, np.roll(tour, -1)].sum())
 
 
@@ -95,7 +98,7 @@ def _apply_segment_move(tour: np.ndarray, start: int, length: int, k: int) -> np
 def local_search(cost: np.ndarray, tour: np.ndarray) -> np.ndarray:
     """Apply the best improving move until none is left."""
     tour = tour.copy()
-    while True:
+    for _ in range(50 * len(tour)):  # far more moves than any real search needs
         best_delta, i, j = _best_two_opt(cost, tour)
         move = ("reverse", i, j)
         for length in (1, 2, 3):
@@ -110,6 +113,7 @@ def local_search(cost: np.ndarray, tour: np.ndarray) -> np.ndarray:
         else:
             _, start, length, k = move
             tour = _apply_segment_move(tour, start, length, k)
+    return tour
 
 
 def _perturb(tour: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -119,17 +123,24 @@ def _perturb(tour: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     return np.concatenate((tour[:a], tour[b:c], tour[a:b], tour[c:]))
 
 
-def solve(cost: np.ndarray, time_limit: float = 1.0, seed: int = 0) -> np.ndarray:
-    """Return node indices of a short closed tour starting at node 0."""
+def solve(
+    cost: np.ndarray, rounds: int = 20, seed: int = 0, initial: np.ndarray | None = None
+) -> np.ndarray:
+    """Return node indices of a short closed tour starting at node 0.
+
+    ``rounds`` is the number of perturb-and-repair attempts after the first local
+    search. The result depends only on the inputs, never on the machine's speed.
+    ``initial`` is an optional starting tour; the result is never longer than it.
+    """
     cost = np.asarray(cost, dtype=float)
     n = len(cost)
     if n <= 3:
-        return np.arange(n)
+        return np.arange(n) if initial is None else np.asarray(initial)
     rng = np.random.default_rng(seed)
-    best = local_search(cost, nearest_neighbour_tour(cost))
+    start = nearest_neighbour_tour(cost) if initial is None else np.asarray(initial)
+    best = local_search(cost, start)
     best_cost = tour_cost(cost, best)
-    deadline = time.perf_counter() + time_limit
-    while time.perf_counter() < deadline:
+    for _ in range(rounds if n > 4 else 0):
         candidate = local_search(cost, _perturb(best, rng))
         candidate_cost = tour_cost(cost, candidate)
         if candidate_cost < best_cost - EPS:
