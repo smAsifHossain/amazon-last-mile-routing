@@ -7,8 +7,6 @@ are typically within a few percent of optimal for routes of 100-200 stops.
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
 
 EPS = 1e-9
@@ -16,6 +14,7 @@ EPS = 1e-9
 
 def tour_cost(cost: np.ndarray, tour: np.ndarray) -> float:
     """Cost of the closed tour ``tour[0] -> ... -> tour[-1] -> tour[0]``."""
+    tour = np.asarray(tour)
     return float(cost[tour, np.roll(tour, -1)].sum())
 
 
@@ -119,8 +118,12 @@ def _perturb(tour: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     return np.concatenate((tour[:a], tour[b:c], tour[a:b], tour[c:]))
 
 
-def solve(cost: np.ndarray, time_limit: float = 1.0, seed: int = 0) -> np.ndarray:
-    """Return node indices of a short closed tour starting at node 0."""
+def solve(cost: np.ndarray, rounds: int = 20, seed: int = 0) -> np.ndarray:
+    """Return node indices of a short closed tour starting at node 0.
+
+    ``rounds`` is the number of perturb-and-repair attempts after the first local
+    search. The result depends only on the inputs, never on the machine's speed.
+    """
     cost = np.asarray(cost, dtype=float)
     n = len(cost)
     if n <= 3:
@@ -128,8 +131,7 @@ def solve(cost: np.ndarray, time_limit: float = 1.0, seed: int = 0) -> np.ndarra
     rng = np.random.default_rng(seed)
     best = local_search(cost, nearest_neighbour_tour(cost))
     best_cost = tour_cost(cost, best)
-    deadline = time.perf_counter() + time_limit
-    while time.perf_counter() < deadline:
+    for _ in range(rounds if n > 4 else 0):
         candidate = local_search(cost, _perturb(best, rng))
         candidate_cost = tour_cost(cost, candidate)
         if candidate_cost < best_cost - EPS:

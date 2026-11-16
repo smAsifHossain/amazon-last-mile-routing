@@ -124,6 +124,26 @@ def score_route(
     return deviation * erp_per_edit(actual, proposed, normalized_times(cost_matrix), gap)
 
 
+def normalized_matrix(times: np.ndarray) -> np.ndarray:
+    """Matrix form of :func:`normalized_times`."""
+    shifted = (times - times.mean()) / times.std()
+    return shifted - shifted.min()
+
+
+def score_sequence(actual: Sequence[int], proposed: Sequence[int], times: np.ndarray) -> float:
+    """Score a route given as stop numbers into the travel-time matrix ``times``.
+
+    Both sequences start at the station and list every stop once; the return to
+    the station is added here.
+    """
+    actual = list(actual) + [actual[0]]
+    proposed = list(proposed) + [proposed[0]]
+    if is_invalid(actual, proposed):
+        raise ValueError("proposed sequence must visit the same stops from the same station")
+    normalized = normalized_matrix(np.asarray(times, dtype=float)).tolist()
+    return sequence_deviation(actual, proposed) * erp_per_edit(actual, proposed, normalized)
+
+
 def evaluate(
     actual_routes: Mapping[str, Mapping[str, Mapping[str, int]]],
     proposed_routes: Mapping[str, Mapping[str, Mapping[str, int]]],
